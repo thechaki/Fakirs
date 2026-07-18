@@ -150,6 +150,33 @@ namespace FakirBot
         }
     }
 
+    void Application::Benchmark::AddSample(
+        const Inference::ModelStatistics& stats
+    ) noexcept
+    {
+        m_samples.push_back(stats.totalMs);
+        if (m_samples.size() > kMaxSamples)
+        {
+            m_samples.erase(m_samples.begin());
+        }
+    }
+
+    void Application::Benchmark::Clear() noexcept
+    {
+        m_samples.clear();
+    }
+
+    double Application::Benchmark::GetP99Ms() const noexcept
+    {
+        if (m_samples.empty())
+            return 0.0;
+
+        auto sorted = m_samples;
+        std::sort(sorted.begin(), sorted.end());
+        const size_t index = (sorted.size() * 99) / 100;
+        return sorted[index];
+    }
+
     bool Application::Initialize()
     {
         try
@@ -467,12 +494,18 @@ namespace FakirBot
                 logoPath
             );
 
-            // ===== AIMBOT INITIALIZATION (DEFERRED) =====
+            // ===== AIMBOT CONTROLLERS CREATION =====
             m_aimbotController =
                 std::make_unique<Aimbot::AimbotController>();
 
+            m_triggerController =
+                std::make_unique<Aimbot::TriggerController>();
+
+            m_recoilController =
+                std::make_unique<Aimbot::RecoilController>();
+
             spdlog::info(
-                "Aimbot controller created (waiting for Arduino connection)."
+                "Aimbot controllers created (waiting for Arduino connection)."
             );
 
             spdlog::info(
@@ -1778,34 +1811,75 @@ namespace FakirBot
                         ? decision.targetScore
                         : 0.0F;
 
-                    // ===== DEFERRED AIMBOT INITIALIZATION CHECK =====
+                    // ===== DEFERRED CONTROLLERS INITIALIZATION CHECK =====
                     if (m_aimbotController &&
+                        m_triggerController &&
+                        m_recoilController &&
                         m_arduinoController &&
-                        m_arduinoController->GetSerialConnection() &&
-                        m_arduinoController->GetSerialConnection()->IsOpen() &&
                         !m_aimbotController->IsInitialized())
                     {
                         m_aimbotController->Initialize(
-                            m_arduinoController->GetSerialConnection()
+                            m_arduinoController.get()
+                        );
+
+                        m_triggerController->Initialize(
+                            m_arduinoController.get(),
+                            m_weaponTrackingService.get()
+                        );
+
+                        m_recoilController->Initialize(
+                            m_arduinoController.get(),
+                            m_weaponTrackingService.get()
                         );
 
                         spdlog::info(
-                            "Aimbot controller initialized with Arduino connection."
+                            "All aimbot controllers initialized with Arduino connection."
                         );
                     }
 
-                    // ===== AIMBOT UPDATE =====
+                    // ===== CONTROLLERS UPDATE =====
                     if (m_aimbotController &&
+                        m_triggerController &&
+                        m_recoilController &&
                         m_aimbotController->IsInitialized())
                     {
                         const auto& overlaySettings =
                             m_overlayManager->GetSettings();
 
+                        // Get key states
+                        const int triggerVirtualKey = overlaySettings.triggerButton.virtualKey;
+                        const bool triggerKeyPressed = triggerVirtualKey != 0 &&
+                            ((GetAsyncKeyState(triggerVirtualKey) & 0x8000) != 0);
+
+                        // Update Aimbot (Aim Lock)
                         m_aimbotController->Update(
                             decision,
                             overlaySettings,
                             m_config.captureWidth,
                             m_config.captureHeight
+                        );
+
+                        // Update Trigger
+                        m_triggerController->Update(
+                            decision,
+                            overlaySettings,
+                            triggerKeyPressed
+                        );
+
+                        // Update Recoil
+                        const bool mouseButtonDown = triggerKeyPressed;
+                        m_recoilController->Update(
+                            decision,
+                            overlaySettings,
+                            triggerKeyPressed,
+                            mouseButtonDown
+                        );
+
+                        spdlog::debug(
+                            "AIMBOT_UPDATE: AimLock={}, Trigger={}, Recoil={}",
+                            m_aimbotController->GetSnapshot().aimLockActive,
+                            m_triggerController->GetSnapshot().triggerActive,
+                            m_recoilController->GetSnapshot().recoilActive
                         );
                     }
                 }
@@ -2091,7 +2165,6 @@ namespace FakirBot
         );
     }
 
-
     std::shared_ptr<
         Runtime::RuntimeStatusStore
     > Application::GetRuntimeStatusStore() const noexcept
@@ -2163,6 +2236,16 @@ namespace FakirBot
         if (m_aimbotController)
         {
             m_aimbotController.reset();
+        }
+
+        if (m_triggerController)
+        {
+            m_triggerController.reset();
+        }
+
+        if (m_recoilController)
+        {
+            m_recoilController.reset();
         }
 
         if (m_weaponTrackingService)
