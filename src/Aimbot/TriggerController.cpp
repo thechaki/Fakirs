@@ -37,7 +37,9 @@ namespace FakirBot::Aimbot
 
         m_snapshot.activeWeapon = weaponSnapshot.active.displayName;
         m_snapshot.fireMode = weaponSnapshot.active.timing.kind;
-        m_snapshot.rpm = weaponSnapshot.active.timing.rpm;
+        m_snapshot.rpm = static_cast<int>(
+            weaponSnapshot.active.timing.rpm
+        );
 
         // Check if we should trigger
         const bool shouldTrigger =
@@ -101,7 +103,9 @@ namespace FakirBot::Aimbot
                     now - m_reactionDelayStart
                 ).count();
 
-            if (elapsedMs < overlaySettings.triggerReactionDelayMs)
+            if (elapsedMs < static_cast<long long>(
+                overlaySettings.triggerReactionDelayMs
+            ))
             {
                 return; // Still waiting
             }
@@ -113,7 +117,7 @@ namespace FakirBot::Aimbot
         // Execute trigger based on fire mode
         ExecuteTrigger(
             weaponSnapshot.active.timing.kind,
-            weaponSnapshot.active.timing.rpm
+            static_cast<int>(weaponSnapshot.active.timing.rpm)
         );
     }
 
@@ -161,9 +165,9 @@ namespace FakirBot::Aimbot
         // Bolt-action: Click with reload time
         if (fireMode == "bolt-action")
         {
-            const uint32_t shotIntervalMs = CalculateShotIntervalMs(rpm);
+            const auto shotIntervalMs = CalculateShotIntervalMs(rpm);
 
-            if (elapsedMs >= shotIntervalMs)
+            if (elapsedMs >= static_cast<long long>(shotIntervalMs))
             {
                 SendMouseClick();
                 m_snapshot.roundsFired++;
@@ -182,7 +186,7 @@ namespace FakirBot::Aimbot
         // Automatic: Hold button down
         if (fireMode == "automatic")
         {
-            const uint32_t shotIntervalMs = CalculateShotIntervalMs(rpm);
+            const auto shotIntervalMs = CalculateShotIntervalMs(rpm);
 
             // Press button on first shot
             if (!m_mouseButtonPressed)
@@ -203,7 +207,7 @@ namespace FakirBot::Aimbot
             }
 
             // Continue firing if interval passed
-            if (elapsedMs >= shotIntervalMs)
+            if (elapsedMs >= static_cast<long long>(shotIntervalMs))
             {
                 m_snapshot.roundsFired++;
                 m_snapshot.burstCount++;
@@ -344,7 +348,7 @@ namespace FakirBot::Aimbot
         }
 
         // RPM to milliseconds: 60000 / RPM
-        const uint32_t intervalMs = 60000 / rpm;
+        const uint32_t intervalMs = 60000 / static_cast<uint32_t>(rpm);
 
         return std::max(1U, intervalMs);
     }
